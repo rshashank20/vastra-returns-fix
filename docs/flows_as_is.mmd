@@ -1,0 +1,32 @@
+%% AS-IS returns flow — Vastra (annotated with measured delays)
+%% Lanes: Customer | App | Courier | Warehouse QC | Refunds | CX
+flowchart TB
+    subgraph Customer
+        C1[Customer requests return<br/>clicks reason code<br/>⚠ reason codes unreliable: 'damaged' 2x over-selected]
+    end
+    subgraph App["App / OMS (today)"]
+        A1[Return logged<br/>NO fee logic<br/>NO exchange default]
+        A2[Pickup request sent to courier<br/>⚠ no pickup SLA in contract]
+    end
+    subgraph Courier
+        K1[Courier attempts pickup<br/>⚠ 10–18% need reattempts<br/>XpressBees 17.8% vs Delhivery 10.3%]
+        K2[⚠ 30% of handoff scans missing<br/>no timestamp = no accountability]
+        K3[Transit to warehouse<br/>avg 4.0 days]
+    end
+    subgraph QC["Warehouse QC"]
+        Q1[Item received<br/>joins backlog]
+        Q2[⚠ QC runs MONDAY BATCH<br/>avg wait 4.1 days<br/>standing backlog 1,500–2,300 units]
+        Q3[Manual inspection<br/>result: resellable / damaged / defective]
+    end
+    subgraph Refunds
+        R1[Refund initiated<br/>avg 2.0 days after QC]
+        R2[Finance processes manually<br/>⚠ WH-Mumbai counts business days,<br/>WH-Delhi calendar days — SLA unmeasurable]
+        R3[Refund credited<br/>total 9–14 days; 56.8% breach 14-day SLA]
+    end
+    subgraph CX
+        X1[Customer asks 'where is my refund?'<br/>14.0 WISMO / 100 breached returns<br/>vs 4.4 clean — 3.2x]
+        X2[Agent investigates manually<br/>5,180 hrs/yr on breached alone]
+    end
+    C1 --> A1 --> A2 --> K1 --> K2 --> K3 --> Q1 --> Q2 --> Q3 --> R1 --> R2 --> R3
+    R3 -.->|breach| X1 --> X2
+    K1 -.->|failed attempt| K1

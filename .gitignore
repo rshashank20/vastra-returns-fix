@@ -1,0 +1,11 @@
+# generated data (330MB) — regenerate locally, never commit
+data/
+*.db
+vastra-data.zip
+
+# python
+__pycache__/
+*.pyc
+
+# os / editor
+.DS_Store

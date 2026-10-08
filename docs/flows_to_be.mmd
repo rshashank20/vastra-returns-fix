@@ -1,0 +1,48 @@
+%% TO-BE returns flow — Vastra (every change traces to a measured bottleneck)
+%% SLA gates shown as diamonds; automation as double-bordered nodes
+flowchart TB
+    subgraph Customer
+        C1[Customer requests return<br/>sees applicable FEE upfront + reason<br/>FR-08]
+    end
+    subgraph App["App / OMS (rebuilt)"]
+        A1{Fee engine: 2nd+ return<br/>this quarter?}
+        A2[Exchange-first checkout<br/>DEFAULT path, instant confirmation<br/>FR-03]
+        A3[Auto-refund rules engine<br/>trust × value × QC × history<br/>FR-01]
+        A4[Pickup request + 24h SLA clock starts<br/>FR-06]
+    end
+    subgraph Courier
+        K1[Courier pickup<br/>scan MANDATORY at handoff<br/>NFR-01]
+        K2{Pickup failed?}
+        K3[Penalty accrues >10% fail rate<br/>₹50 / excess failure<br/>BR-09]
+    end
+    subgraph QC["Warehouse QC — DAILY FLOW"]
+        Q1[Item received → prioritization queue<br/>breach-risk × value, not FIFO<br/>FR-05]
+        Q2[Daily QC — target ≤1 day wait<br/>BR-08]
+    end
+    subgraph Refunds
+        R1{QC result?}
+        R2[Auto-approve: instant refund<br/>high-trust, low value<br/>RULE-02]
+        R3[Manual review queue]
+        R4[Refund credited ≤5 days post-QC<br/>for 95% · BR-01]
+    end
+    subgraph CX
+        X1[Proactive delay notification<br/>BEFORE customer asks<br/>FR-04]
+        X2[Escalation dashboard<br/>breach-risk flagged<br/>FR-04]
+    end
+    C1 --> A1
+    A1 -->|yes, not QC-damage| A2
+    A1 -->|no| A2
+    A2 -->|customer chooses exchange| Q1
+    A2 -->|customer chooses refund| A3
+    A3 --> A4 --> K1 --> K2
+    K2 -->|yes, <3 attempts| K1
+    K2 -->|≥3 attempts| X2
+    K2 -->|no| K3
+    K1 --> Q1 --> Q2 --> R1
+    R1 -->|resellable + auto-approve| R2 --> R4
+    R1 -->|needs review| R3 --> R4
+    R1 -->|damaged/defective| R3
+    Q1 -.->|wait >72h| X1
+    K1 -.->|delay >48h| X1
+    R4 -.->|projected breach| X1
+    X1 --> X2
