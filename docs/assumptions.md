@@ -1,39 +1,51 @@
-# Assumptions Log + Stakeholder Pushback Appendix
+# Assumptions & Validation Notes
+
+Some parts of the recommendation come directly from the analysis. Others are inputs to the policy and process models that I could not validate from the synthetic dataset alone.
+
+I have kept those assumptions separate rather than presenting the model output as a measured business result. Each one has a validation owner and a clear indication of what would change if the assumption turns out to be wrong.
 
 ## Assumptions log
-Every unvalidated item is marked as such, with the owner who must validate it
-and what breaks if it's wrong.
 
-| ID | Assumption | Status | Validate with | If wrong |
-|----|------------|--------|---------------|----------|
-| A-GM1 | Gross margin 35% (→ ₹630/order) | UNVALIDATED | Finance controller | Policy-model net scales linearly — re-run model |
-| A-ELAS | Demand elasticity −0.3 (sensitivity −0.1…−0.5) | UNVALIDATED | Marketing + past promo data | Conversion-loss estimate moves; sensitivity grid covers it |
-| A-DET | Fee deters 50% bracketing / 60% fake claims @₹49 | UNVALIDATED | Pilot: A/B fee on 5% traffic | Deterrence is the highest-leverage unknown — pilot before full rollout |
-| A-EXCH | 25% of fit/remorse → exchange under exchange-first | UNVALIDATED | Product: prototype test | Exchange upside is the biggest modeled number — validate early |
-| A-ABUSE | Instant-refund abuse provision ₹15L/yr (≤2% abuse) | UNVALIDATED | Risk/finance: velocity rules | Tighten trust-score gate if exceeded |
-| A-QC | QC throughput 60 units/agent/day | UNVALIDATED | Warehouse ops time study | Backlog burn-down timeline shifts |
-| A-ATTR | 65% of policy upside needs the system rebuild | UNVALIDATED | Eng: scope review | Business-case payback moves (still <2 mo at 40%) |
-| A-SEGN | ~95K returns/yr are 2nd+ in quarter | UNVALIDATED | Recompute quarterly from live data | Fee-revenue line moves ±20% |
-| A-SLA | QC fix cuts breach 56.8% → 30% | UNVALIDATED | Pilot daily flow at 1 warehouse | WISMO savings scale with actual breach reduction |
+| ID | Assumption | Status | How I would validate it | What changes if it is wrong |
+|----|------------|--------|-------------------------|------------------------------|
+| A-GM1 | Gross margin is 35% (₹630/order) | UNVALIDATED | Confirm with Finance controller | Policy-model net benefit scales with the actual margin, so the model needs to be rerun |
+| A-ELAS | Demand elasticity is −0.3, with a sensitivity range of −0.1 to −0.5 | UNVALIDATED | Compare with past promotions and Marketing data | Estimated conversion loss changes; the sensitivity grid shows the range |
+| A-DET | A ₹49 fee deters 50% of bracketing and 60% of fake damage claims | UNVALIDATED | Run an A/B test on 5% of traffic | Fee deterrence is one of the biggest unknowns, so the pilot should come before a full rollout |
+| A-EXCH | 25% of fit/remorse returns convert to an exchange under exchange-first | UNVALIDATED | Test the flow with Product and measure actual conversion | The exchange benefit is the largest modelled upside, so this assumption needs early validation |
+| A-ABUSE | Instant-refund abuse provision is ₹15L/year, assuming abuse stays at or below 2% | UNVALIDATED | Validate with Risk/Finance using velocity and trust-score rules | Tighten the trust-score gate or reduce instant-refund eligibility if abuse is higher |
+| A-QC | One QC agent can process 60 units/day | UNVALIDATED | Conduct a warehouse time study | The expected backlog burn-down time changes |
+| A-ATTR | 65% of the policy upside requires the system rebuild | UNVALIDATED | Confirm scope and dependencies with Engineering | The business-case payback period changes; it remains below two months at a 40% realization level |
+| A-SEGN | About 95K returns/year are a customer's 2nd or later return in a quarter | UNVALIDATED | Recompute the segment using live quarterly return data | Expected fee revenue moves by roughly ±20% |
+| A-SLA | Moving QC to daily processing reduces breach rate from 56.8% to 30% | UNVALIDATED | Run a daily-QC pilot at one warehouse | WISMO and refund-SLA savings scale with the actual breach reduction |
 
-**Calculated (not assumed):** ₹511 cost/return, ₹18.16 cr/yr, 56.8% breach,
-triangulation splits, concentration curve, journey stage times, courier fail
-rates — all from `sql/00–13` on the synthetic dataset.
+### What came directly from the analysis
 
-## Appendix: stakeholder pushback — worked example
+These are **calculated, not assumed**: ₹511 cost per return, ₹18.16 cr annual return cost, 56.8% breach rate, the return-reason triangulation splits, the customer concentration curve, journey-stage timings, and courier pickup failure rates.
 
-**Requirement under challenge:** FR-01 auto-refund rules engine (instant refunds
-for high-trust customers, no manual review).
+Those figures come from the SQL analyses in `sql/00–13` on the synthetic dataset. They are analytical outputs from the project data, not real Vastra financials.
 
-**Finance objection:** *"Auto-approval will increase fraudulent refunds.
-A customer could claim damage, get an instant refund, and keep the item.
-We're writing blank cheques to anyone with a good history."*
+## Stakeholder pushback: worked example
 
-**Analyst response (documented mitigation):**
-1. **Caps:** instant refunds only for item value ≤ ₹2,000 (RULE-02) — worst-case exposure per incident is bounded.
-2. **Trust gate:** trust_score ≥ 80 AND zero fee history — the segment with the lowest observed abuse in the data (top trust decile).
-3. **Velocity checks:** >2 instant refunds in 30 days auto-routes to manual review, whatever the score.
-4. **QC backstop:** the refund is *initiated* instantly but reconciled at QC — if QC finds no item received, the next order is held and the case goes to risk review.
-5. **Provisioned cost:** ₹15L/yr abuse provision (A-ABUSE) is already inside the segmented policy's net — the recommendation survives 2% abuse.
+One requirement I would expect Finance to challenge is **FR-01: the auto-refund rules engine**, which allows instant refunds for high-trust customers without a manual review.
 
-**Outcome if objection stands:** fall back to "initiate on pickup scan, credit on QC" (24–48h, still 3× faster than today) — 80% of the WISMO benefit, ~0% of the fraud surface. The program does not depend on winning this argument.
+### Likely Finance objection
+
+> "Auto-approval could increase fraudulent refunds. A customer could claim damage, receive the refund immediately, and still keep the item. How do we control that risk?"
+
+I would not dismiss the concern. The better approach is to put limits around the rule and make the risk measurable.
+
+### Controls I would propose
+
+1. **Refund cap:** instant refund applies only to items worth ₹2,000 or less (RULE-02), which limits the maximum exposure per transaction.
+2. **Trust gate:** require `trust_score >= 80` and no fee history. This targets the higher-trust segment rather than opening the rule to every customer.
+3. **Velocity check:** more than 2 instant refunds in 30 days automatically goes to manual review, regardless of the customer's trust score.
+4. **QC backstop:** the refund is initiated immediately, but the return is still reconciled at QC. When the item is not received, the next order is held and the case moves to risk review.
+5. **Abuse provision:** the model already includes a ₹15L/year provision for refund abuse (A-ABUSE). If the real rate is above the assumed level, the rule should be tightened before scaling it.
+
+### Fallback option
+
+There is also a lower-risk version of the flow if Finance is not comfortable with instant credit.
+
+Instead of crediting immediately, Vastra can **initiate the refund when the pickup is scanned and credit it after QC**. That should bring the process down to roughly 24–48 hours after pickup while avoiding most of the fraud exposure of a fully instant refund.
+
+The point is not to force one solution through. The process should still deliver a large part of the WISMO benefit even if the most aggressive refund rule is rejected.
