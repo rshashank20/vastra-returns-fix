@@ -126,15 +126,16 @@ The `docs/` folder contains the parts I would normally hand to different stakeho
 
 ```text
 vastra-returns-fix/
+├── dashboard/              # index.html: interactive web dashboard + build_dashboard.py
 ├── data_generator.py
 ├── DATA_DICTIONARY.md
+├── BUILD_LOG.md
 ├── PLAN.md
 ├── sql/
 ├── excel/
 ├── docs/
 ├── recommendation_memo.md
-├── powerbi_build_guide.md
-└── resume_bullets.md
+└── powerbi_build_guide.md
 ```
 
 The full dataset and SQLite database are generated locally and are not committed to the repository.

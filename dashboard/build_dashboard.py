@@ -1,11 +1,115 @@
 #!/usr/bin/env python3
 """Build the Returns Fix web dashboard (single self-contained index.html)."""
-import json
+#!/usr/bin/env python3
+"""Build the Returns Fix web dashboard (single self-contained index.html).
 
-proj = "/home/hatch/workspace/goals/fresher-ba-founder-s-office-proof-of-work-portfolio/projects/returns-fix"
-d = json.load(open("/tmp/dash_data.json"))
-d["toxic"] = json.load(open("/tmp/toxic.json"))
-DATA = json.dumps(d)
+Usage:  python3 build_dashboard.py      # run from anywhere
+Reads:  ../vastra.db  (build it first:  python3 ../data_generator.py --scale 1.0)
+Writes: index.html next to this script. No other dependencies.
+"""
+import json
+import sqlite3
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent
+DB = BASE.parent / "vastra.db"
+OUT = BASE / "index.html"
+
+con = sqlite3.connect(DB)
+d = {}
+d["true_reason"] = [dict(zip(["bucket", "n"], r)) for r in con.execute("""
+WITH flagged AS (
+    SELECT v.*,
+           CASE WHEN b.order_id IS NOT NULL THEN 1 ELSE 0 END AS is_bracketing
+    FROM v_return_cost v
+    LEFT JOIN (SELECT DISTINCT order_id FROM (
+        SELECT o.order_id FROM order_lines o
+        GROUP BY o.order_id, o.sku HAVING COUNT(DISTINCT o.size) >= 3)) b
+      ON b.order_id = v.order_id),
+classified AS (
+    SELECT CASE
+        WHEN is_bracketing = 1 THEN 'bracketing'
+        WHEN reason_code = 'quality_issue' AND qc_result = 'defective' THEN 'quality_failure'
+        WHEN reason_code = 'damaged' AND qc_result = 'damaged' THEN 'genuine_damage'
+        WHEN qc_result = 'damaged' THEN 'damaged_item_other_claim'
+        WHEN qc_result = 'defective' THEN 'defective_item_other_claim'
+        WHEN reason_code = 'damaged' AND qc_result = 'resellable' THEN 'fake_damage_claim'
+        WHEN reason_code IN ('size_fit','changed_mind','other') AND qc_result = 'resellable'
+             AND is_bracketing = 0 THEN 'fit_or_remorse'
+        WHEN reason_code = 'wrong_item' AND qc_result = 'resellable' THEN 'wrong_item'
+        WHEN qc_result IS NULL THEN 'unknown_qc'
+        ELSE 'other_true' END AS bucket
+    FROM flagged)
+SELECT bucket, COUNT(*) FROM classified GROUP BY bucket ORDER BY COUNT(*) DESC""").fetchall()]
+d["monthly"] = [dict(zip(["month", "n_returns", "cost_lakh"], r)) for r in con.execute("""
+SELECT SUBSTR(return_date,1,7) AS m, COUNT(*), ROUND(SUM(total_cost)/100000,1)
+FROM v_return_cost GROUP BY m ORDER BY m""").fetchall()]
+d["stage_avg"] = dict(zip(["sched", "pickup", "transit", "qc", "refund"], con.execute("""
+SELECT ROUND(AVG(d_sched),2), ROUND(AVG(d_pickup),2), ROUND(AVG(d_transit),2),
+       ROUND(AVG(d_qc),2), ROUND(AVG(d_refund),2)
+FROM (SELECT JULIANDAY(t1)-JULIANDAY(t0) AS d_sched, JULIANDAY(t2)-JULIANDAY(t1) AS d_pickup,
+             JULIANDAY(t3)-JULIANDAY(t2) AS d_transit, JULIANDAY(t4)-JULIANDAY(t3) AS d_qc,
+             JULIANDAY(t5)-JULIANDAY(t4) AS d_refund
+      FROM (SELECT return_id,
+                MAX(CASE WHEN stage='initiated' THEN stage_ts END) AS t0,
+                MAX(CASE WHEN stage='pickup_scheduled' THEN stage_ts END) AS t1,
+                MAX(CASE WHEN stage='picked_up' THEN stage_ts END) AS t2,
+                MAX(CASE WHEN stage='received_at_wh' THEN stage_ts END) AS t3,
+                MAX(CASE WHEN stage='qc_done' THEN stage_ts END) AS t4,
+                MAX(CASE WHEN stage='refund_issued' THEN stage_ts END) AS t5
+            FROM return_journey WHERE stage_ts IS NOT NULL GROUP BY return_id))""").fetchone()))
+d["breach_anatomy"] = [dict(zip(["grp", "sched", "pickup", "transit", "qc", "refund"], r)) for r in con.execute("""
+WITH piv AS (
+    SELECT return_id,
+        MAX(CASE WHEN stage='initiated' THEN stage_ts END) AS t0,
+        MAX(CASE WHEN stage='pickup_scheduled' THEN stage_ts END) AS t1,
+        MAX(CASE WHEN stage='picked_up' THEN stage_ts END) AS t2,
+        MAX(CASE WHEN stage='received_at_wh' THEN stage_ts END) AS t3,
+        MAX(CASE WHEN stage='qc_done' THEN stage_ts END) AS t4,
+        MAX(CASE WHEN stage='refund_issued' THEN stage_ts END) AS t5
+    FROM return_journey WHERE stage_ts IS NOT NULL GROUP BY return_id)
+SELECT COALESCE(r.sla_breach_flag,0),
+    ROUND(AVG(JULIANDAY(t1)-JULIANDAY(t0)),2), ROUND(AVG(JULIANDAY(t2)-JULIANDAY(t1)),2),
+    ROUND(AVG(JULIANDAY(t3)-JULIANDAY(t2)),2), ROUND(AVG(JULIANDAY(t4)-JULIANDAY(t3)),2),
+    ROUND(AVG(JULIANDAY(t5)-JULIANDAY(t4)),2)
+FROM piv p JOIN v_return_cost v ON v.return_id = p.return_id
+LEFT JOIN refunds r ON r.return_id = v.return_id GROUP BY 1""").fetchall()]
+d["backlog"] = [dict(zip(["month", "wh", "avg_backlog"], r)) for r in con.execute("""
+WITH ev AS (
+    SELECT DATE(j.stage_ts) AS d, v.warehouse_id AS w,
+        SUM(CASE WHEN j.stage='received_at_wh' THEN 1 ELSE 0 END) AS a,
+        SUM(CASE WHEN j.stage='qc_done' THEN 1 ELSE 0 END) AS c
+    FROM return_journey j JOIN v_return_cost v ON v.return_id = j.return_id
+    WHERE j.stage IN ('received_at_wh','qc_done') AND j.stage_ts IS NOT NULL
+    GROUP BY d, w),
+bl AS (
+    SELECT d, w, SUM(a-c) OVER (
+        PARTITION BY w ORDER BY d ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b
+    FROM ev)
+SELECT SUBSTR(d,1,7), w, ROUND(AVG(b)) FROM bl GROUP BY 1, 2 ORDER BY 1, 2""").fetchall()]
+d["courier"] = [dict(zip(["courier", "reattempt_pct"], r)) for r in con.execute("""
+SELECT courier, ROUND(AVG(CASE WHEN pickup_attempts > 1 THEN 1.0 ELSE 0 END)*100,1)
+FROM v_return_cost GROUP BY courier ORDER BY 2 DESC""").fetchall()]
+d["deciles"] = [dict(zip(["decile", "pct_cost", "cum_pct"], r)) for r in con.execute("""
+WITH ranked AS (
+    SELECT customer_id, SUM(total_cost) AS c,
+           NTILE(10) OVER (ORDER BY SUM(total_cost) DESC) AS d
+    FROM v_return_cost GROUP BY customer_id)
+SELECT d,
+    ROUND(SUM(c)*100.0/(SELECT SUM(c) FROM ranked),1),
+    ROUND(SUM(SUM(c)) OVER (ORDER BY d)*100.0/(SELECT SUM(c) FROM ranked),1)
+FROM ranked GROUP BY d ORDER BY d""").fetchall()]
+d["toxic"] = [dict(zip(["sku", "category", "n_sold", "n_returns", "ret_rate", "avg_cost"], r)) for r in con.execute("""
+WITH sold AS (
+    SELECT sku, category, COUNT(*) AS n_sold FROM order_lines GROUP BY sku, category),
+ret AS (
+    SELECT sku, COUNT(*) AS n_returns, ROUND(AVG(total_cost)) AS avg_cost
+    FROM v_return_cost GROUP BY sku)
+SELECT s.sku, s.category, s.n_sold, COALESCE(r.n_returns,0),
+       ROUND(COALESCE(r.n_returns,0)*100.0/s.n_sold,1), COALESCE(r.avg_cost,0)
+FROM sold s LEFT JOIN ret r ON r.sku = s.sku
+WHERE s.n_sold >= 500 ORDER BY 5 DESC LIMIT 15""").fetchall()]
+con.close()
 
 PRETTY = {
     "bracketing": "Bracketing", "fit_or_remorse": "Fit / remorse",
@@ -98,7 +202,7 @@ get stuck, and the policy that fixes it.</p>
 <section><h2>4 &middot; The decision</h2>
 <div class="sub">Four problems, one blanket fee cannot fix them. The segmented policy targets the 6% who game the system instead of punishing everyone.</div>
 <div class="card"><h3>Policy options, net margin impact (&#8377; cr / yr, modelled)</h3><div class="note">From excel/policy_scenarios.xlsx &mdash; assumptions documented, sensitivity-tested</div><div id="policy"></div></div>
-<div class="callout"><b>Recommendation: SEGMENTED.</b> Exchange-first as the default path &middot; &#8377;49 fee from the 2nd return per quarter (genuine damage always free) &middot; instant refunds for high-trust customers &middot; QC to daily flow &middot; 24-hr courier pickup SLA. Rebuild cost &#8377;6.5L, payback under one month.</div>
+<div class="callout"><b>Recommendation: SEGMENTED.</b> Exchange-first as the default path &middot; &#8377;49 fee from the 2nd return per quarter (genuine damage always free) &middot; instant refunds for high-trust customers &middot; QC to daily flow &middot; 24-hr courier pickup SLA. Rebuild cost &#8377;6.5L, payback under one month (modelled).</div>
 </section>
 <footer>All data is <b>synthetic</b>, generated for this case study &mdash; no real company data.
 Figures labelled <b>modelled</b> are scenario outputs under documented assumptions, not measured results.
@@ -194,5 +298,5 @@ function base(h){return {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,
 </script></body></html>
 """
 out = html_head.replace("%%DATA%%", DATA)
-open(proj + "/dashboard/index.html", "w").write(out)
-print("written", len(out) // 1024, "KB")
+open(OUT, "w").write(out)
+print("written", OUT, len(out) // 1024, "KB")
