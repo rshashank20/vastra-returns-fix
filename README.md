@@ -1,16 +1,40 @@
-# The Returns Fix — Vastra (fictional D2C fashion brand)
+# The Returns Fix
 
-> **Problem (1 line):** Returns cost Vastra ₹511 each — not the ₹88 leadership thought — bleeding ₹18.2 cr/yr, while refunds take 10+ days and breach SLA 56.8% of the time.
-> **Decision (1 line):** Segmented policy (exchange-first + ₹49 fee from 2nd return/quarter + instant refunds for high-trust) plus a process rebuild (daily-flow QC, courier pickup SLAs, auto-refund rules).
-> **Impact (1 line):** +₹3.48 cr/yr net margin, modeled; rebuild payback under one month.
+Vastra is a fictional D2C fashion brand with a returns problem. Leadership
+thought a return cost ₹88 (the reverse shipping fee). Customers thought
+refunds took forever. Both were right about the feeling and wrong about
+the scale.
 
----
+I built this to answer two questions:
 
-## What this project is
-A merged analytics + business-analysis assignment: the cost-and-policy analytics
-of a returns-bleed investigation **plus** the end-to-end process reengineering
-(BRD, AS-IS/TO-BE, user stories, UAT) for rebuilding the returns flow. One repo,
-one decision.
+1. What does a return actually cost, and who should pay for it?
+2. Where does the refund process get stuck, and how do you rebuild it?
+
+**What I found:** a return costs ₹511 fully loaded, which is ₹18.2 crore
+a year. Only about a quarter of returns are genuine quality issues, but
+they eat 62% of the money. The rest is fit problems, bracketing (buying
+3 sizes and keeping 1), and customers claiming "damaged" to get free
+pickup. Refunds take 10+ days because QC inspects in one weekly Monday
+batch, and every late refund generates 3x the support tickets.
+
+**What I recommended:** a segmented policy. Exchange-first as the
+default path, a ₹49 fee only from the second return in a quarter
+(genuine damage is always free), instant refunds for trusted customers.
+Plus the process rebuild: daily QC flow, courier pickup SLAs,
+auto-refund rules. Modeled impact is +₹3.48 crore a year with payback
+in under a month.
+
+## What's in here
+
+| Path | Contents |
+|---|---|
+| `data_generator.py` | Builds the synthetic dataset (9 tables, 800K orders, 356K returns). Run this first. |
+| `sql/` | 14 analyses: cost model, reason triangulation, bracketing, bottleneck mining, breach anatomy. |
+| `excel/` | Policy scenarios (5 options + sensitivity grid), QC capacity, business case. All formulas live. |
+| `docs/` | RCA, stakeholder map, BRD v1.0, as-is/to-be flows, user stories, UAT, assumptions log. |
+| `recommendation_memo.md` | The one-page decision memo. Start here if you're short on time. |
+| `powerbi_build_guide.md` | Spec for the 4-page dashboard (build it in Power BI Desktop). |
+| `BUILD_LOG.md` | How this was actually built, including the bugs. |
 
 ## Quickstart
 
@@ -20,40 +44,15 @@ python3 data_generator.py --scale 1.0   # full dataset (~2 min, writes data/)
 python3 data_generator.py --scale 0.02  # 30-second smoke sample
 ```
 
-`data/` (9 CSVs, ~330MB) and `vastra.db` are generated locally and never
-committed — run the generator, then run `sql/00_cost_view.sql` followed by
-`sql/01`–`sql/13` in SQLite.
+`data/` (~330MB of CSVs) and `vastra.db` are generated locally and not
+committed. After generating, run `sql/00_cost_view.sql` then `sql/01`
+through `sql/13` in SQLite.
 
-## How it was done
-1. **Synthetic dataset** (`data_generator.py`): 9 tables, 800K orders, 356K returns, 2.1M journey events — with deliberately seeded quality issues (noisy reason codes, business-vs-calendar-day refunds, missing pickup scans, Monday QC batching, app-retry duplicates).
-2. **SQL analytics** (`sql/00–13`): fully-loaded cost model → reason×category slices → true-reason triangulation (claimed × QC × ordering patterns) → bracketing/concentration/toxicity → journey bottleneck mining → breach anatomy → WISMO economics.
-3. **Excel models** (`excel/`): policy scenarios (5 options, sensitivity grid), QC capacity + courier SLA costing, business case with payback. All formulas live; assumptions isolated and labeled.
-4. **BA package** (`docs/`): stakeholder map + RACI, BRD v1.0, AS-IS/TO-BE flows (Mermaid), 10 user stories (Gherkin), 8 UAT cases, assumptions log + pushback appendix, RCA write-up.
-5. **Decision** (`recommendation_memo.md`): one-page executive memo. **Visualization** (`powerbi_build_guide.md`): build spec for the 4-page dashboard.
+## One honest note
 
-## Key findings
-- Fully-loaded cost/return: **₹511** (reverse 88 + forward waste 72 + QC 35 + refurb 33 + CX 11 + holding 7 + write-off 265).
-- Triangulation: only ~26% genuine quality/damage; 47.6% fit/remorse; 10.2% fake damage claims; 8.0% bracketing (13,535 customers).
-- Top 20% of customers drive 49.9% of cost; return rates flat across acquisition channels (marketing is not the problem).
-- Bottleneck: Monday-batch QC (5.1 vs 2.9 days in breached refunds); breaches → 3.2× WISMO tickets; XpressBees fails pickups 1.7× more than Delhivery.
-
-## Repo map
-| Path | Contents |
-|---|---|
-| `data/` | generated locally via `data_generator.py` (9 CSVs + `DATA_DICTIONARY.md`) — not committed |
-| `data_generator.py` | Synthetic data generator (seeded quality issues documented) |
-| `vastra.db` | SQLite analytical database (built locally from `data/`) — not committed |
-| `sql/` | 00 shared cost view + 13 analyses |
-| `excel/` | policy_scenarios · capacity_model · business_case |
-| `docs/` | rca · stakeholders · BRD_v1.0 · flows · user_stories · uat · assumptions |
-| `PLAN.md` | Phase-by-phase execution plan |
-| `powerbi_build_guide.md` | Dashboard build spec (not a .pbix) |
-| `recommendation_memo.md` | One-page executive decision memo |
-
-## Data honesty (non-negotiable)
-**All data is synthetic**, generated by `data_generator.py` with documented
-assumptions — no real company data is used or claimed. Figures labeled
-**calculated** come from the dataset; figures labeled **modeled/expected**
-(e.g., the ₹3.48 cr policy net, payback) are scenario outputs under stated
-assumptions, never presented as measured results. Assumption IDs (A-xxx) are
-logged in `docs/assumptions.md`; unvalidated items are marked as such.
+All data is synthetic, generated by `data_generator.py` with documented
+assumptions. Nothing here is real company data and nothing claims to be.
+Numbers labeled **calculated** come from the dataset. Numbers labeled
+**modeled** (like the ₹3.48cr policy impact) are scenario outputs under
+stated assumptions, not measured results. Every assumption is logged in
+`docs/assumptions.md`, and the unvalidated ones are marked as such.
